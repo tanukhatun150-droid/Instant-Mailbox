@@ -9,14 +9,31 @@ export interface HealthStatus {
   status: string;
 }
 
+export type MailDomainProvider = typeof MailDomainProvider[keyof typeof MailDomainProvider];
+
+
+export const MailDomainProvider = {
+  '1secmail': '1secmail',
+  mailtm: 'mailtm',
+} as const;
+
 export interface MailDomain {
   domain: string;
   id: string;
+  provider: MailDomainProvider;
 }
 
 export interface MailDomainList {
   domains: MailDomain[];
 }
+
+export type MailboxInputProvider = typeof MailboxInputProvider[keyof typeof MailboxInputProvider];
+
+
+export const MailboxInputProvider = {
+  '1secmail': '1secmail',
+  mailtm: 'mailtm',
+} as const;
 
 export interface MailboxInput {
   /** @minLength 1 */
@@ -27,13 +44,29 @@ export interface MailboxInput {
      * @pattern ^[A-Za-z0-9._-]+$
      */
   username?: string;
+  provider: MailboxInputProvider;
 }
+
+export type MailboxSessionProvider = typeof MailboxSessionProvider[keyof typeof MailboxSessionProvider];
+
+
+export const MailboxSessionProvider = {
+  '1secmail': '1secmail',
+  mailtm: 'mailtm',
+} as const;
 
 export interface MailboxSession {
   address: string;
-  token: string;
-  id: string;
-  password: string;
+  /** @nullable */
+  token?: string | null;
+  /** @nullable */
+  id?: string | null;
+  /** @nullable */
+  password?: string | null;
+  provider: MailboxSessionProvider;
+  /** @nullable */
+  login?: string | null;
+  domain: string;
 }
 
 export interface MailSender {
@@ -42,14 +75,24 @@ export interface MailSender {
   name: string | null;
 }
 
+export interface MailRecipient {
+  address: string;
+  /** @nullable */
+  name: string | null;
+}
+
 export interface MailMessageSummary {
   id: string;
-  from: MailSender;
+  sender: MailSender;
   subject: string;
-  intro: string;
-  createdAt: string;
+  preview: string;
+  date: string;
+  bodyHtml: string;
+  /** @nullable */
+  bodyText: string | null;
   seen: boolean;
   hasAttachments: boolean;
+  recipients: MailRecipient[];
 }
 
 export interface MailMessageList {
@@ -57,22 +100,17 @@ export interface MailMessageList {
   totalItems: number;
 }
 
-export interface MailRecipient {
-  address: string;
-  /** @nullable */
-  name: string | null;
-}
-
 export interface MailMessageDetail {
   id: string;
-  from: MailSender;
-  to: MailRecipient[];
+  sender: MailSender;
+  recipients: MailRecipient[];
   subject: string;
-  intro: string;
+  preview: string;
+  date: string;
   /** @nullable */
-  text: string | null;
-  html: string[];
-  createdAt: string;
+  bodyText: string | null;
+  bodyHtml: string;
   seen: boolean;
+  hasAttachments: boolean;
 }
 

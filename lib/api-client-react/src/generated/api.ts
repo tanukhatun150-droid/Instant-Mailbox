@@ -307,6 +307,7 @@ export const getListMailMessagesUrl = () => {
 }
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary List messages in the active mailbox
  */
 export const listMailMessages = async ( options?: Parameters<typeof customFetch>[1]): Promise<MailMessageList> => {
@@ -384,6 +385,7 @@ export const getGetMailMessageUrl = (messageId: string,) => {
 }
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary Get a full email message
  */
 export const getMailMessage = async (messageId: string, options?: Parameters<typeof customFetch>[1]): Promise<MailMessageDetail> => {
@@ -461,6 +463,7 @@ export const getDeleteMailMessageUrl = (messageId: string,) => {
 }
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary Delete an email message
  */
 export const deleteMailMessage = async (messageId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {

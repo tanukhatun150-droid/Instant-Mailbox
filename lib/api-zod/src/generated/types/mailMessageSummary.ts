@@ -5,14 +5,19 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MailRecipient } from './mailRecipient';
 import type { MailSender } from './mailSender';
 
 export interface MailMessageSummary {
   id: string;
-  from: MailSender;
+  sender: MailSender;
   subject: string;
-  intro: string;
-  createdAt: Date;
+  preview: string;
+  date: Date;
+  bodyHtml: string;
+  /** @nullable */
+  bodyText: string | null;
   seen: boolean;
   hasAttachments: boolean;
+  recipients: MailRecipient[];
 }

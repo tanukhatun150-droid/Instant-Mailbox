@@ -23,7 +23,8 @@ export const HealthCheckResponse = zod.object({
 export const ListMailDomainsResponse = zod.object({
   "domains": zod.array(zod.object({
   "domain": zod.string(),
-  "id": zod.string()
+  "id": zod.string(),
+  "provider": zod.enum(['1secmail', 'mailtm'])
 }))
 })
 
@@ -40,38 +41,50 @@ export const createMailMailboxBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]+$
 
 export const CreateMailMailboxBody = zod.object({
   "domain": zod.string().min(1),
-  "username": zod.string().min(1).max(createMailMailboxBodyUsernameMax).regex(createMailMailboxBodyUsernameRegExp).optional()
+  "username": zod.string().min(1).max(createMailMailboxBodyUsernameMax).regex(createMailMailboxBodyUsernameRegExp).optional(),
+  "provider": zod.enum(['1secmail', 'mailtm'])
 })
 
 export const CreateMailMailboxResponse = zod.object({
   "address": zod.string(),
-  "token": zod.string(),
-  "id": zod.string(),
-  "password": zod.string()
+  "token": zod.string().nullish(),
+  "id": zod.string().nullish(),
+  "password": zod.string().nullish(),
+  "provider": zod.enum(['1secmail', 'mailtm']),
+  "login": zod.string().nullish(),
+  "domain": zod.string()
 })
 
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary List messages in the active mailbox
  */
 export const ListMailMessagesResponse = zod.object({
   "messages": zod.array(zod.object({
   "id": zod.string(),
-  "from": zod.object({
+  "sender": zod.object({
   "address": zod.string(),
   "name": zod.string().nullable()
 }),
   "subject": zod.string(),
-  "intro": zod.string(),
-  "createdAt": zod.coerce.date(),
+  "preview": zod.string(),
+  "date": zod.coerce.date(),
+  "bodyHtml": zod.string(),
+  "bodyText": zod.string().nullable(),
   "seen": zod.boolean(),
-  "hasAttachments": zod.boolean()
+  "hasAttachments": zod.boolean(),
+  "recipients": zod.array(zod.object({
+  "address": zod.string(),
+  "name": zod.string().nullable()
+}))
 })),
   "totalItems": zod.number().int()
 })
 
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary Get a full email message
  */
 export const GetMailMessageParams = zod.object({
@@ -80,24 +93,26 @@ export const GetMailMessageParams = zod.object({
 
 export const GetMailMessageResponse = zod.object({
   "id": zod.string(),
-  "from": zod.object({
+  "sender": zod.object({
   "address": zod.string(),
   "name": zod.string().nullable()
 }),
-  "to": zod.array(zod.object({
+  "recipients": zod.array(zod.object({
   "address": zod.string(),
   "name": zod.string().nullable()
 })),
   "subject": zod.string(),
-  "intro": zod.string(),
-  "text": zod.string().nullable(),
-  "html": zod.array(zod.string()),
-  "createdAt": zod.coerce.date(),
-  "seen": zod.boolean()
+  "preview": zod.string(),
+  "date": zod.coerce.date(),
+  "bodyText": zod.string().nullable(),
+  "bodyHtml": zod.string(),
+  "seen": zod.boolean(),
+  "hasAttachments": zod.boolean()
 })
 
 
 /**
+ * For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
  * @summary Delete an email message
  */
 export const DeleteMailMessageParams = zod.object({

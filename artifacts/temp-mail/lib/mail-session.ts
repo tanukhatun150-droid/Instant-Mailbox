@@ -67,12 +67,20 @@ function errorMessage(value: unknown, fallback: string) {
 
 async function mailRequest<T>(
   path: string,
-  options: { method?: 'GET' | 'POST' | 'DELETE'; token?: string; body?: unknown } = {},
+  options: {
+    method?: 'GET' | 'POST' | 'DELETE';
+    token?: string;
+    body?: unknown;
+    signal?: AbortSignal;
+  } = {},
   baseUrl = MAIL_TM_API,
 ): Promise<T> {
   const method = options.method ?? 'GET';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
+  const abortFromParent = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromParent, { once: true });
 
   try {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -112,6 +120,7 @@ async function mailRequest<T>(
     throw failure;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromParent);
   }
 }
 
@@ -126,11 +135,11 @@ function getBridgeBaseUrl() {
   return baseUrl.replace(/\/+$/, '');
 }
 
-export async function listMailDomains(): Promise<{ domains: MailDomain[] }> {
+export async function listMailDomains(signal?: AbortSignal): Promise<{ domains: MailDomain[] }> {
   if (Platform.OS === 'web') {
     const response = asRecord(await mailRequest<unknown>(
       '/api/mail/domains',
-      {},
+      { signal },
       getBridgeBaseUrl(),
     ));
     return {
@@ -143,7 +152,7 @@ export async function listMailDomains(): Promise<{ domains: MailDomain[] }> {
     };
   }
 
-  const response = await mailRequest<unknown>('/domains');
+  const response = await mailRequest<unknown>('/domains', { signal });
   const domains = asMembers(response)
     .filter((item) => item.isActive === true && item.isPrivate !== true)
     .map((item) => ({
@@ -169,7 +178,11 @@ function randomPassword() {
   ).join('');
 }
 
-export async function createMailMailbox(domain: string, requestedUsername?: string): Promise<MailSession> {
+export async function createMailMailbox(
+  domain: string,
+  requestedUsername?: string,
+  signal?: AbortSignal,
+): Promise<MailSession> {
   const normalizedDomain = domain.trim().toLowerCase();
   const normalizedUsername = requestedUsername?.trim().toLowerCase();
   if (!normalizedDomain) throw new MailTmError('Choose an active email domain.');
@@ -186,6 +199,7 @@ export async function createMailMailbox(domain: string, requestedUsername?: stri
           domain: normalizedDomain,
           ...(normalizedUsername ? { username: normalizedUsername } : {}),
         },
+        signal,
       },
       getBridgeBaseUrl(),
     ));
@@ -212,17 +226,20 @@ export async function createMailMailbox(domain: string, requestedUsername?: stri
       const account = asRecord(await mailRequest<unknown>('/accounts', {
         method: 'POST',
         body: { address, password },
+        signal,
       }));
       const id = asString(account.id);
       const tokenResponse = asRecord(await mailRequest<unknown>('/token', {
         method: 'POST',
         body: { address, password },
+        signal,
       }));
       const token = asString(tokenResponse.token);
 
       if (!id || !token) {
         throw new MailTmError('Mail.tm did not return a mailbox ID and session token.');
       }
+      if (signal?.aborted) throw new MailTmError('Mailbox creation timed out. Trying another provider.');
       const session = { address, token, id, password };
       setMailboxToken(token);
       return session;
@@ -262,10 +279,10 @@ function normalizeMessage(value: unknown): MailMessageSummary {
   };
 }
 
-export async function listMailMessages(token: string): Promise<MailMessageList> {
+export async function listMailMessages(token: string, signal?: AbortSignal): Promise<MailMessageList> {
   const response = await mailRequest<unknown>(
     Platform.OS === 'web' ? '/api/mail/messages' : '/messages',
-    { token },
+    { token, signal },
     Platform.OS === 'web' ? getBridgeBaseUrl() : MAIL_TM_API,
   );
   const record = asRecord(response);
@@ -278,10 +295,14 @@ export async function listMailMessages(token: string): Promise<MailMessageList> 
   };
 }
 
-export async function getMailMessage(token: string, messageId: string): Promise<MailMessageDetail> {
+export async function getMailMessage(
+  token: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<MailMessageDetail> {
   const response = asRecord(await mailRequest<unknown>(
     `${Platform.OS === 'web' ? '/api/mail/messages' : '/messages'}/${encodeURIComponent(messageId)}`,
-    { token },
+    { token, signal },
     Platform.OS === 'web' ? getBridgeBaseUrl() : MAIL_TM_API,
   ));
   const summary = normalizeMessage(response);
@@ -297,10 +318,14 @@ export async function getMailMessage(token: string, messageId: string): Promise<
   };
 }
 
-export async function deleteMailMessage(token: string, messageId: string): Promise<void> {
+export async function deleteMailMessage(
+  token: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<void> {
   await mailRequest<unknown>(
     `${Platform.OS === 'web' ? '/api/mail/messages' : '/messages'}/${encodeURIComponent(messageId)}`,
-    { method: 'DELETE', token },
+    { method: 'DELETE', token, signal },
     Platform.OS === 'web' ? getBridgeBaseUrl() : MAIL_TM_API,
   );
 }

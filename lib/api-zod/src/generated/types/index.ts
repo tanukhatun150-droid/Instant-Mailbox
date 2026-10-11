@@ -8,9 +8,12 @@
 
 export * from './healthStatus';
 export * from './mailboxInput';
+export * from './mailboxInputProvider';
 export * from './mailboxSession';
+export * from './mailboxSessionProvider';
 export * from './mailDomain';
 export * from './mailDomainList';
+export * from './mailDomainProvider';
 export * from './mailMessageDetail';
 export * from './mailMessageList';
 export * from './mailMessageSummary';

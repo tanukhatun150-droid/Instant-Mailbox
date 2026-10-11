@@ -10,13 +10,14 @@ import type { MailSender } from './mailSender';
 
 export interface MailMessageDetail {
   id: string;
-  from: MailSender;
-  to: MailRecipient[];
+  sender: MailSender;
+  recipients: MailRecipient[];
   subject: string;
-  intro: string;
+  preview: string;
+  date: Date;
   /** @nullable */
-  text: string | null;
-  html: string[];
-  createdAt: Date;
+  bodyText: string | null;
+  bodyHtml: string;
   seen: boolean;
+  hasAttachments: boolean;
 }

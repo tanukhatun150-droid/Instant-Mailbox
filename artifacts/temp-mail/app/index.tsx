@@ -24,22 +24,24 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  createMailMailbox as createMailTmMailbox,
-  deleteMailMessage as deleteMailTmMessage,
-  getMailMessage as getMailTmMessage,
-  getMailboxToken,
-  listMailDomains as listMailTmDomains,
-  listMailMessages as listMailTmMessages,
-  setMailboxToken,
-} from '@/lib/mail-session';
-import type { MailMessageDetail, MailMessageSummary } from '@/lib/mail-session';
+  createEmailMailbox,
+  deleteEmailMessage,
+  getEmailMessage,
+  listEmailDomains,
+  listEmailMessages,
+  normalizeStoredMailbox,
+  type EmailDomain,
+  type EmailMailbox,
+  type EmailMessage,
+} from '@/lib/email-engine';
+import { setMailboxToken } from '@/lib/mail-session';
 import palette from '@/constants/colors';
 
 type Screen = 'email' | 'inbox' | 'switch' | 'other';
 type AddressRecord = { address: string; createdAt: string };
-type RuntimeSession = { address: string; token: string; createdAt: string; id?: string; password?: string };
+type RuntimeSession = EmailMailbox & { createdAt: string };
 type SavedSnapshot = {
-  message: MailMessageSummary;
+  message: EmailMessage;
   body: string;
   savedAt: string;
 };
@@ -66,9 +68,9 @@ function initials(name: string) {
   return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'M';
 }
 
-function safeMessageText(text: string | null | undefined, html: string[]) {
+function safeMessageText(text: string | null | undefined, html: string) {
   if (text?.trim()) return text.trim();
-  return html.join('\n')
+  return html
     .replace(/<(script|style|iframe|object|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
     .replace(/<(br|hr)\b[^>]*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, '\n\n')
@@ -84,7 +86,11 @@ function otpFrom(text: string) {
 }
 
 function readableError(error: unknown) {
-  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+  const message = error instanceof Error ? error.message : '';
+  if (/failed to fetch|fetch failed|network request failed|network error|timed out|temporarily unavailable/i.test(message)) {
+    return 'Email providers are temporarily unavailable. Tap Retry to try again.';
+  }
+  return message || 'Something went wrong. Please try again.';
 }
 
 export default function InboxScreen() {
@@ -92,14 +98,15 @@ export default function InboxScreen() {
   const queryClient = useQueryClient();
   const domains = useQuery({
     queryKey: ['mail', 'domains'],
-    queryFn: listMailTmDomains,
+    queryFn: listEmailDomains,
     retry: false,
     staleTime: 60_000,
   });
   const [screen, setScreen] = useState<Screen>('email');
-  const [address, setAddress] = useState<string | null>(null);
+  const [mailbox, setMailbox] = useState<EmailMailbox | null>(null);
+  const address = mailbox?.address ?? null;
   const [runtimeSessions, setRuntimeSessions] = useState<RuntimeSession[]>([]);
-  const [selectedMessage, setSelectedMessage] = useState<MailMessageSummary | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<EmailMessage | null>(null);
   const [savedSelection, setSavedSelection] = useState<SavedSnapshot | null>(null);
   const [history, setHistory] = useState<AddressRecord[]>([]);
   const [sessionCounts, setSessionCounts] = useState<Record<string, number>>({});
@@ -151,13 +158,13 @@ export default function InboxScreen() {
   }, []);
 
   const createMailbox = useMutation({
-      mutationFn: ({ domain, username }: { domain: string; username?: string }) =>
-        createMailTmMailbox(domain, username),
+      mutationFn: ({ domain, username }: { domain: EmailDomain; username?: string }) =>
+        createEmailMailbox(domain, username, domains.data?.domains ?? []),
       onSuccess: (session) => {
         const createdAt = new Date().toISOString();
         queryClient.removeQueries({ queryKey: ['mail', 'messages'] });
-        setMailboxToken(session.token);
-        setAddress(session.address);
+        setMailboxToken(session.provider === 'mailtm' ? session.token ?? null : null);
+        setMailbox(session);
         void AsyncStorage.setItem(
           STORAGE.activeMailbox,
           JSON.stringify({ ...session, createdAt }),
@@ -180,38 +187,35 @@ export default function InboxScreen() {
         setSelectorVisible(false);
       },
       onError: (error) => {
-        console.error('[temp-mail] Could not create a Mail.tm address:', error);
+        console.error('[temp-mail] Could not create an email address:', error);
         setMailboxError(readableError(error));
         showToast('Address could not be created', 'error');
       },
   });
 
   const messages = useQuery({
-    queryKey: ['mail', 'messages', address],
+    queryKey: ['mail', 'messages', address, mailbox?.provider],
     queryFn: () => {
-      const token = getMailboxToken();
-      if (!token) throw new Error('This mailbox session has expired. Create a new address to continue.');
-      return listMailTmMessages(token);
+      if (!mailbox) throw new Error('Mailbox details are unavailable. Create a new address to continue.');
+      return listEmailMessages(mailbox);
     },
-    enabled: Boolean(address),
-    refetchInterval: address && preferences.autoRefresh ? 4500 : false,
+    enabled: Boolean(mailbox),
+    refetchInterval: mailbox && preferences.autoRefresh ? 5000 : false,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
   });
   const messageDetail = useQuery({
-    queryKey: ['mail', 'message', address, selectedId],
+    queryKey: ['mail', 'message', address, mailbox?.provider, selectedId],
     queryFn: () => {
-      const token = getMailboxToken();
-      if (!token) throw new Error('This mailbox session has expired. Create a new address to continue.');
-      return getMailTmMessage(token, selectedId);
+      if (!mailbox) throw new Error('Mailbox details are unavailable. Create a new address to continue.');
+      return getEmailMessage(mailbox, selectedId);
     },
-    enabled: Boolean(selectedId && address && !savedSelection),
+    enabled: Boolean(selectedId && mailbox && !savedSelection),
   });
   const deleteMessage = useMutation({
       mutationFn: (messageId: string) => {
-        const token = getMailboxToken();
-        if (!token) throw new Error('This mailbox session has expired. Create a new address to continue.');
-        return deleteMailTmMessage(token, messageId);
+        if (!mailbox) throw new Error('Mailbox details are unavailable. Create a new address to continue.');
+        return deleteEmailMessage(mailbox, messageId);
       },
       onSuccess: () => {
         setSelectedMessage(null);
@@ -233,10 +237,15 @@ export default function InboxScreen() {
       if (!mounted) return;
       try {
         if (activeMailboxValue) {
-          const active = JSON.parse(activeMailboxValue) as RuntimeSession;
-          if (active.address && active.token) {
-            setMailboxToken(active.token);
-            setAddress(active.address);
+          const stored = JSON.parse(activeMailboxValue) as Record<string, unknown>;
+          const normalized = normalizeStoredMailbox(stored);
+          if (normalized) {
+            const active: RuntimeSession = {
+              ...normalized,
+              createdAt: typeof stored.createdAt === 'string' ? stored.createdAt : new Date().toISOString(),
+            };
+            setMailboxToken(active.provider === 'mailtm' ? active.token ?? null : null);
+            setMailbox(active);
             setRuntimeSessions([active]);
             firstLoadStarted.current = true;
           }
@@ -272,14 +281,14 @@ export default function InboxScreen() {
   useEffect(() => {
     const availableDomains = domains.data?.domains ?? [];
     if (!selectorVisible || !availableDomains.length) return;
-    if (!selectedDomain || !availableDomains.some((item) => item.domain === selectedDomain)) {
-      setSelectedDomain(availableDomains[0].domain);
+    if (!selectedDomain || !availableDomains.some((item) => item.id === selectedDomain)) {
+      setSelectedDomain(availableDomains[0].id);
     }
   }, [domains.data, selectedDomain, selectorVisible]);
 
   useEffect(() => {
     if (firstLoadStarted.current || !domains.data || !storageReady || address) return;
-    const activeDomain = domains.data.domains[0]?.domain;
+    const activeDomain = domains.data.domains[0];
     if (!activeDomain) {
       setMailboxError('No active email domains are available right now.');
       return;
@@ -328,7 +337,7 @@ export default function InboxScreen() {
     if (newTimer.current) clearTimeout(newTimer.current);
   }, []);
 
-  const createAddressForDomain = (domain: string, username?: string) => {
+  const createAddressForDomain = (domain: EmailDomain, username?: string) => {
     if (createMailbox.isPending) return;
     setMailboxError(null);
     firstLoadStarted.current = true;
@@ -337,7 +346,7 @@ export default function InboxScreen() {
   };
   const retryInitialSetup = () => {
     setMailboxError(null);
-    const activeDomain = domains.data?.domains[0]?.domain;
+    const activeDomain = domains.data?.domains[0];
     if (activeDomain) {
       createAddressForDomain(activeDomain);
     } else {
@@ -349,11 +358,9 @@ export default function InboxScreen() {
     setSessionMode('Random');
     setMailboxError(null);
     const availableDomains = domains.data?.domains ?? [];
-    setSelectedDomain(
-      availableDomains.length
-        ? availableDomains[Math.floor(Math.random() * availableDomains.length)].domain
-        : null,
-    );
+    setSelectedDomain(availableDomains.length
+      ? availableDomains[Math.floor(Math.random() * availableDomains.length)].id
+      : null);
     setDomainSearch('');
     setRequestedUsername('');
     if (!domains.data?.domains.length || domains.isError) {
@@ -368,7 +375,8 @@ export default function InboxScreen() {
       setMailboxError('Use 1–64 letters, numbers, dots, underscores, or hyphens.');
       return;
     }
-    const domain = selectedDomain ?? availableDomains[Math.floor(Math.random() * availableDomains.length)].domain;
+    const domain = availableDomains.find((item) => item.id === selectedDomain)
+      ?? availableDomains[Math.floor(Math.random() * availableDomains.length)];
     createAddressForDomain(domain, sessionMode === 'Domain' ? normalizedUsername || undefined : undefined);
   };
   const toggleAddressSearch = () => {
@@ -383,8 +391,8 @@ export default function InboxScreen() {
   const switchRuntimeSession = (session: RuntimeSession) => {
     if (session.address === address) return;
     queryClient.removeQueries({ queryKey: ['mail', 'messages'] });
-    setMailboxToken(session.token);
-    setAddress(session.address);
+    setMailboxToken(session.provider === 'mailtm' ? session.token ?? null : null);
+    setMailbox(session);
     void AsyncStorage.setItem(STORAGE.activeMailbox, JSON.stringify(session)).catch(() => {
       showToast('Mailbox switched, but could not be saved on this device');
     });
@@ -421,7 +429,7 @@ export default function InboxScreen() {
     ]);
   };
 
-  const openMessage = (item: MailMessageSummary) => {
+  const openMessage = (item: EmailMessage) => {
     setSavedSelection(null);
     setSelectedMessage(item);
     Animated.spring(sheetProgress, { toValue: 1, damping: 24, stiffness: 210, mass: 0.9, useNativeDriver: true }).start();
@@ -439,10 +447,10 @@ export default function InboxScreen() {
 
   const saveSnapshot = () => {
     if (!selectedMessage) return;
-    const detail = messageDetail.data as MailMessageDetail | undefined;
+    const detail = messageDetail.data;
     const snapshot = {
       message: selectedMessage,
-      body: detail ? safeMessageText(detail.text, detail.html ?? []) : selectedMessage.intro,
+      body: detail ? safeMessageText(detail.bodyText, detail.bodyHtml) : selectedMessage.preview,
       savedAt: new Date().toISOString(),
     };
     setSavedMessages((items) => [snapshot, ...items.filter((item) => item.message.id !== selectedMessage.id)].slice(0, 100));
@@ -458,9 +466,9 @@ export default function InboxScreen() {
 
   const selectedBody = useMemo(() => {
     if (savedSelection) return savedSelection.body;
-    return messageDetail.data ? safeMessageText(messageDetail.data.text, messageDetail.data.html ?? []) : '';
+    return messageDetail.data ? safeMessageText(messageDetail.data.bodyText, messageDetail.data.bodyHtml) : '';
   }, [messageDetail.data, savedSelection]);
-  const messageOtp = otpFrom(`${selectedMessage?.subject ?? ''} ${selectedMessage?.intro ?? ''} ${selectedBody}`);
+  const messageOtp = otpFrom(`${selectedMessage?.subject ?? ''} ${selectedMessage?.preview ?? ''} ${selectedBody}`);
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
   const bottomInset = Platform.OS === 'web' ? 34 : insets.bottom;
   const dockBottom = Math.max(bottomInset, 14);
@@ -486,7 +494,7 @@ export default function InboxScreen() {
     ]);
   };
 
-  const renderMessage = ({ item }: { item: MailMessageSummary }) => {
+  const renderMessage = ({ item }: { item: EmailMessage }) => {
     return <MessageCard item={item} isNew={newIds.has(item.id)} colors={colors} onPress={() => openMessage(item)} />;
   };
 
@@ -593,7 +601,7 @@ export default function InboxScreen() {
           )}
           <Text style={[styles.usernameAt, { color: colors.mutedForeground }]}>@</Text>
           <Text numberOfLines={1} style={[styles.usernameDomain, { color: colors.mutedForeground }]}>
-            {selectedDomain ?? 'choose domain'}
+            {domains.data?.domains.find((item) => item.id === selectedDomain)?.domain ?? 'choose domain'}
           </Text>
         </View>
         <Text style={[styles.usernameHint, { color: usernameIsValid ? colors.mutedForeground : colors.destructive }]}>
@@ -623,18 +631,18 @@ export default function InboxScreen() {
                 <Pressable
                   key={entry.id}
                   accessibilityRole="radio"
-                  accessibilityState={{ checked: selectedDomain === entry.domain }}
+                  accessibilityState={{ checked: selectedDomain === entry.id }}
                   testID={`select-domain-${entry.domain}`}
-                  onPress={() => setSelectedDomain(entry.domain)}
+                   onPress={() => setSelectedDomain(entry.id)}
                   style={[
                     styles.domainChip,
                     {
-                      backgroundColor: selectedDomain === entry.domain ? '#00C875' : colors.card,
-                      borderColor: selectedDomain === entry.domain ? '#00C875' : colors.border,
+                      backgroundColor: selectedDomain === entry.id ? '#00C875' : colors.card,
+                      borderColor: selectedDomain === entry.id ? '#00C875' : colors.border,
                     },
                   ]}
                 >
-                  <Text numberOfLines={1} style={[styles.domainChipText, { color: selectedDomain === entry.domain ? '#FFFFFF' : colors.foreground }]}>
+                  <Text numberOfLines={1} style={[styles.domainChipText, { color: selectedDomain === entry.id ? '#FFFFFF' : colors.foreground }]}>
                     @{entry.domain}
                   </Text>
                 </Pressable>
@@ -674,7 +682,7 @@ export default function InboxScreen() {
       <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <SettingRow icon={preferences.darkMode ? 'moon' : 'sun'} title="Dark mode" subtitle="Use the darker inbox appearance" value={preferences.darkMode} onValueChange={(value) => setPreferences((p) => ({ ...p, darkMode: value }))} testID="setting-dark-mode" colors={colors} />
         <View style={[styles.hairline, { backgroundColor: colors.border }]} />
-        <SettingRow icon="refresh-cw" title="Auto-refresh" subtitle="Check for new mail every 4.5 seconds" value={preferences.autoRefresh} onValueChange={(value) => setPreferences((p) => ({ ...p, autoRefresh: value }))} testID="setting-auto-refresh" colors={colors} />
+        <SettingRow icon="refresh-cw" title="Auto-refresh" subtitle="Check for new mail every 5 seconds" value={preferences.autoRefresh} onValueChange={(value) => setPreferences((p) => ({ ...p, autoRefresh: value }))} testID="setting-auto-refresh" colors={colors} />
         <View style={[styles.hairline, { backgroundColor: colors.border }]} />
         <SettingRow icon="activity" title="Haptic feedback" subtitle="Light feedback for key actions" value={preferences.haptics} onValueChange={(value) => setPreferences((p) => ({ ...p, haptics: value }))} testID="setting-haptics" colors={colors} />
         <View style={[styles.hairline, { backgroundColor: colors.border }]} />
@@ -707,7 +715,7 @@ export default function InboxScreen() {
           </View>
           {savedMessages.map((entry) => <Pressable key={entry.message.id} accessibilityRole="button" accessibilityLabel={`Open saved message ${entry.message.subject}`} testID={`saved-${entry.message.id}`} onPress={() => openSaved(entry)} style={[styles.historyRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={[styles.historyIcon, { backgroundColor: colors.accent }]}><Feather name="bookmark" size={16} color={colors.primary} /></View>
-            <View style={styles.historyCopy}><Text numberOfLines={1} style={[styles.historyTitle, { color: colors.foreground }]}>{entry.message.subject || '(no subject)'}</Text><Text numberOfLines={1} style={[styles.historySub, { color: colors.mutedForeground }]}>{entry.message.from.name || entry.message.from.address}</Text></View>
+            <View style={styles.historyCopy}><Text numberOfLines={1} style={[styles.historyTitle, { color: colors.foreground }]}>{entry.message.subject || '(no subject)'}</Text><Text numberOfLines={1} style={[styles.historySub, { color: colors.mutedForeground }]}>{entry.message.sender.name || entry.message.sender.address}</Text></View>
             <Text style={[styles.date, { color: colors.mutedForeground }]}>{formatDate(entry.savedAt)}</Text>
           </Pressable>)}
         </>
@@ -904,15 +912,15 @@ export default function InboxScreen() {
             </View>
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               <View style={styles.senderDetail}>
-                <View style={[styles.avatarLarge, { backgroundColor: colors.accent }]}><Text style={[styles.avatarText, { color: colors.cyan }]}>{initials(selectedMessage.from.name || selectedMessage.from.address)}</Text></View>
+                <View style={[styles.avatarLarge, { backgroundColor: colors.accent }]}><Text style={[styles.avatarText, { color: colors.cyan }]}>{initials(selectedMessage.sender.name || selectedMessage.sender.address)}</Text></View>
                 <View style={styles.senderDetailCopy}>
-                  <Text numberOfLines={1} style={[styles.senderDetailName, { color: colors.foreground }]}>{selectedMessage.from.name || selectedMessage.from.address}</Text>
-                  <Text numberOfLines={1} style={[styles.senderAddress, { color: colors.mutedForeground }]}>{selectedMessage.from.address}</Text>
+                  <Text numberOfLines={1} style={[styles.senderDetailName, { color: colors.foreground }]}>{selectedMessage.sender.name || selectedMessage.sender.address}</Text>
+                  <Text numberOfLines={1} style={[styles.senderAddress, { color: colors.mutedForeground }]}>{selectedMessage.sender.address}</Text>
                 </View>
-                <Text style={[styles.date, { color: colors.mutedForeground }]}>{formatDate(selectedMessage.createdAt)}</Text>
+                <Text style={[styles.date, { color: colors.mutedForeground }]}>{formatDate(selectedMessage.date)}</Text>
               </View>
               <Text style={[styles.detailSubject, { color: colors.foreground }]}>{selectedMessage.subject || '(no subject)'}</Text>
-              <Text style={[styles.toLine, { color: colors.mutedForeground }]}>To {messageDetail.data?.to.map((recipient) => recipient.address).join(', ') || address}</Text>
+              <Text style={[styles.toLine, { color: colors.mutedForeground }]}>To {messageDetail.data?.recipients.map((recipient) => recipient.address).join(', ') || address}</Text>
               {messageOtp ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Copy verification code ${messageOtp}`} testID="copy-otp" onPress={() => void handleCopy(messageOtp, 'Code copied')} style={[styles.otpCard, { borderColor: colors.cyan, backgroundColor: colors.accent }]}>
                   <View><Text style={[styles.eyebrow, { color: colors.mutedForeground }]}>VERIFICATION CODE</Text><Text style={[styles.otpValue, { color: colors.cyan }]}>{messageOtp}</Text></View>
@@ -922,17 +930,17 @@ export default function InboxScreen() {
               <View style={[styles.bodyCard, { backgroundColor: colors.glass, borderColor: colors.border }]}>
                 {messageDetail.isLoading && !savedSelection ? (
                   <View style={styles.bodyLoading} testID="message-body-loading">
-                    <Text style={[styles.bodyText, { color: colors.foreground }]}>{selectedMessage.intro || 'Loading full message…'}</Text>
+                    <Text style={[styles.bodyText, { color: colors.foreground }]}>{selectedMessage.preview || 'Loading full message…'}</Text>
                     <View style={[styles.shimmerBar, { backgroundColor: colors.secondary, width: '70%' }]} />
                     <View style={[styles.shimmerBar, { backgroundColor: colors.secondary, width: '94%' }]} />
                   </View>
                 ) : messageDetail.error && !savedSelection ? (
                   <View style={styles.bodyError}>
-                    <Text style={[styles.bodyText, { color: colors.mutedForeground }]}>{selectedMessage.intro || readableError(messageDetail.error)}</Text>
+                    <Text style={[styles.bodyText, { color: colors.mutedForeground }]}>{selectedMessage.preview || readableError(messageDetail.error)}</Text>
                     <Pressable accessibilityRole="button" testID="retry-message-detail" onPress={() => void messageDetail.refetch()}><Text style={[styles.textAction, { color: colors.cyan }]}>Retry loading</Text></Pressable>
                   </View>
                 ) : (
-                  <Text selectable style={[styles.bodyText, { color: colors.foreground }]}>{selectedBody || selectedMessage.intro || 'This message has no readable body.'}</Text>
+                  <Text selectable style={[styles.bodyText, { color: colors.foreground }]}>{selectedBody || selectedMessage.preview || 'This message has no readable body.'}</Text>
                 )}
               </View>
               {savedSelection ? <Text style={[styles.savedNote, { color: colors.mutedForeground }]}>Saved snapshot · {formatDate(savedSelection.savedAt)}</Text> : null}
@@ -989,7 +997,7 @@ function DockItem({ icon, label, active, color, muted, testID, onPress, busy = f
 }
 
 function MessageCard({ item, isNew, colors, onPress }: {
-  item: MailMessageSummary;
+  item: EmailMessage;
   isNew: boolean;
   colors: AppColors;
   onPress: () => void;
@@ -1004,12 +1012,12 @@ function MessageCard({ item, isNew, colors, onPress }: {
     opacity: appear,
     transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
   };
-  const code = otpFrom(`${item.subject} ${item.intro}`);
+  const code = otpFrom(`${item.subject} ${item.preview}`);
   return (
     <Animated.View style={style}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open email from ${item.from.name || item.from.address}, ${item.subject || 'no subject'}`}
+        accessibilityLabel={`Open email from ${item.sender.name || item.sender.address}, ${item.subject || 'no subject'}`}
         testID={`message-${item.id}`}
         onPress={onPress}
         style={({ pressed }) => [
@@ -1018,23 +1026,23 @@ function MessageCard({ item, isNew, colors, onPress }: {
         ]}
       >
         <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
-          <Text style={[styles.avatarText, { color: colors.accentForeground }]}>{initials(item.from.name || item.from.address)}</Text>
+          <Text style={[styles.avatarText, { color: colors.accentForeground }]}>{initials(item.sender.name || item.sender.address)}</Text>
         </View>
         <View style={styles.messageCopy}>
           <View style={styles.senderLine}>
             <Text numberOfLines={1} style={[styles.sender, { color: colors.foreground, fontWeight: item.seen ? '500' : '700' }]}>
-              {item.from.name || item.from.address}
+              {item.sender.name || item.sender.address}
             </Text>
             {isNew ? <View style={[styles.newBadge, { backgroundColor: colors.cyan }]}><Text style={[styles.newBadgeText, { color: colors.primaryForeground }]}>NEW</Text></View> : null}
             {!item.seen && !isNew ? <View style={[styles.unreadDot, { backgroundColor: colors.cyan }]} /> : null}
           </View>
-          <Text numberOfLines={1} style={[styles.senderAddress, { color: colors.mutedForeground }]}>{item.from.address}</Text>
+          <Text numberOfLines={1} style={[styles.senderAddress, { color: colors.mutedForeground }]}>{item.sender.address}</Text>
           <Text numberOfLines={1} style={[styles.subject, { color: colors.foreground }]}>{item.subject || '(no subject)'}</Text>
-          <Text numberOfLines={2} style={[styles.intro, { color: colors.mutedForeground }]}>{item.intro || 'Open to read this email.'}</Text>
+          <Text numberOfLines={2} style={[styles.intro, { color: colors.mutedForeground }]}>{item.preview || 'Open to read this email.'}</Text>
           {code ? <View style={[styles.codeTag, { borderColor: colors.cyan }]}><Feather name="key" size={11} color={colors.cyan} /><Text style={[styles.codeTagText, { color: colors.cyan }]}>{code}</Text></View> : null}
         </View>
         <View style={styles.messageMeta}>
-          <Text style={[styles.date, { color: colors.mutedForeground }]}>{formatDate(item.createdAt)}</Text>
+          <Text style={[styles.date, { color: colors.mutedForeground }]}>{formatDate(item.date)}</Text>
           <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
         </View>
       </Pressable>

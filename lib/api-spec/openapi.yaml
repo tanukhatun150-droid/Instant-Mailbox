@@ -69,8 +69,10 @@ paths:
       operationId: listMailMessages
       tags: [mail]
       summary: List messages in the active mailbox
+      description: For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
       security:
         - bearerAuth: []
+        - {}
       responses:
         "200":
           description: Inbox messages
@@ -91,8 +93,10 @@ paths:
       operationId: getMailMessage
       tags: [mail]
       summary: Get a full email message
+      description: For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
       security:
         - bearerAuth: []
+        - {}
       responses:
         "200":
           description: Email message
@@ -108,8 +112,10 @@ paths:
       operationId: deleteMailMessage
       tags: [mail]
       summary: Delete an email message
+      description: For 1secmail, supply X-Mail-Provider, X-Mail-Login, and X-Mail-Domain headers.
       security:
         - bearerAuth: []
+        - {}
       responses:
         "204":
           description: Message deleted
@@ -137,7 +143,10 @@ components:
           type: string
         id:
           type: string
-      required: [domain, id]
+        provider:
+          type: string
+          enum: [1secmail, mailtm]
+      required: [domain, id, provider]
     MailDomainList:
       type: object
       properties:
@@ -157,19 +166,29 @@ components:
           minLength: 1
           maxLength: 64
           pattern: "^[A-Za-z0-9._-]+$"
-      required: [domain]
+        provider:
+          type: string
+          enum: [1secmail, mailtm]
+      required: [domain, provider]
     MailboxSession:
       type: object
       properties:
         address:
           type: string
         token:
-          type: string
+          type: ["string", "null"]
         id:
-          type: string
+          type: ["string", "null"]
         password:
+          type: ["string", "null"]
+        provider:
           type: string
-      required: [address, token, id, password]
+          enum: [1secmail, mailtm]
+        login:
+          type: ["string", "null"]
+        domain:
+          type: string
+      required: [address, provider, domain]
     MailSender:
       type: object
       properties:
@@ -183,20 +202,28 @@ components:
       properties:
         id:
           type: string
-        from:
+        sender:
           $ref: "#/components/schemas/MailSender"
         subject:
           type: string
-        intro:
+        preview:
           type: string
-        createdAt:
+        date:
           type: string
           format: date-time
+        bodyHtml:
+          type: string
+        bodyText:
+          type: ["string", "null"]
         seen:
           type: boolean
         hasAttachments:
           type: boolean
-      required: [id, from, subject, intro, createdAt, seen, hasAttachments]
+        recipients:
+          type: array
+          items:
+            $ref: "#/components/schemas/MailRecipient"
+      required: [id, sender, subject, preview, date, bodyHtml, bodyText, seen, hasAttachments, recipients]
     MailMessageList:
       type: object
       properties:
@@ -220,26 +247,26 @@ components:
       properties:
         id:
           type: string
-        from:
+        sender:
           $ref: "#/components/schemas/MailSender"
-        to:
+        recipients:
           type: array
           items:
             $ref: "#/components/schemas/MailRecipient"
         subject:
           type: string
-        intro:
+        preview:
           type: string
-        text:
-          type: ["string", "null"]
-        html:
-          type: array
-          items:
-            type: string
-        createdAt:
+        date:
           type: string
           format: date-time
+        bodyText:
+          type: ["string", "null"]
+        bodyHtml:
+          type: string
         seen:
           type: boolean
-      required: [id, from, to, subject, intro, text, html, createdAt, seen]
+        hasAttachments:
+          type: boolean
+      required: [id, sender, recipients, subject, preview, date, bodyText, bodyHtml, seen, hasAttachments]
 

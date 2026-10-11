@@ -5,8 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MailDomainProvider } from './mailDomainProvider';
 
 export interface MailDomain {
   domain: string;
   id: string;
+  provider: MailDomainProvider;
 }

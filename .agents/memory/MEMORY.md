@@ -1,1 +1,2 @@
 - [Mail.tm browser access](mail-tm-browser-access.md) — browser requests lack CORS headers; keep web access on the Replit API bridge.
+- [Orval parameter exports](orval-parameter-exports.md) — path and query parameter types can collide in the generated Zod barrel.

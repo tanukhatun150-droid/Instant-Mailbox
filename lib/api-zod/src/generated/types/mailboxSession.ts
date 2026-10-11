@@ -5,10 +5,18 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MailboxSessionProvider } from './mailboxSessionProvider';
 
 export interface MailboxSession {
   address: string;
-  token: string;
-  id: string;
-  password: string;
+  /** @nullable */
+  token?: string | null;
+  /** @nullable */
+  id?: string | null;
+  /** @nullable */
+  password?: string | null;
+  provider: MailboxSessionProvider;
+  /** @nullable */
+  login?: string | null;
+  domain: string;
 }

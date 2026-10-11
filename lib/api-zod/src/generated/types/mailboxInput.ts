@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MailboxInputProvider } from './mailboxInputProvider';
 
 export interface MailboxInput {
   /** @minLength 1 */
@@ -15,4 +16,5 @@ export interface MailboxInput {
      * @pattern ^[A-Za-z0-9._-]+$
      */
   username?: string;
+  provider: MailboxInputProvider;
 }
