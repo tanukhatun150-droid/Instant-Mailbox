@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Temp Mail",
+    "slug": "temp-mail",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "temp-mail",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0F1013"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {},
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

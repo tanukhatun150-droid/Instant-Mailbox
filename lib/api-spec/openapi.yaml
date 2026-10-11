@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: mail
+    description: Disposable Mail.tm inbox operations
 paths:
   /healthz:
     get:
@@ -24,7 +26,102 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /mail/domains:
+    get:
+      operationId: listMailDomains
+      tags: [mail]
+      summary: List active temporary email domains
+      responses:
+        "200":
+          description: Available email domains
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailDomainList"
+        "502":
+          description: Mail.tm could not be reached
+  /mail/mailbox:
+    post:
+      operationId: createMailMailbox
+      tags: [mail]
+      summary: Create a temporary mailbox and sign in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MailboxInput"
+      responses:
+        "201":
+          description: Mailbox created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailboxSession"
+        "400":
+          description: Invalid domain or username
+        "409":
+          description: Username is already in use
+        "502":
+          description: Mail.tm could not create the mailbox
+  /mail/messages:
+    get:
+      operationId: listMailMessages
+      tags: [mail]
+      summary: List messages in the active mailbox
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Inbox messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailMessageList"
+        "401":
+          description: Mailbox session is invalid
+  /mail/messages/{messageId}:
+    parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getMailMessage
+      tags: [mail]
+      summary: Get a full email message
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailMessageDetail"
+        "401":
+          description: Mailbox session is invalid
+        "404":
+          description: Message not found
+    delete:
+      operationId: deleteMailMessage
+      tags: [mail]
+      summary: Delete an email message
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Message deleted
+        "401":
+          description: Mailbox session is invalid
+        "404":
+          description: Message not found
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +130,116 @@ components:
           type: string
       required:
         - status
+    MailDomain:
+      type: object
+      properties:
+        domain:
+          type: string
+        id:
+          type: string
+      required: [domain, id]
+    MailDomainList:
+      type: object
+      properties:
+        domains:
+          type: array
+          items:
+            $ref: "#/components/schemas/MailDomain"
+      required: [domains]
+    MailboxInput:
+      type: object
+      properties:
+        domain:
+          type: string
+          minLength: 1
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[A-Za-z0-9._-]+$"
+      required: [domain]
+    MailboxSession:
+      type: object
+      properties:
+        address:
+          type: string
+        token:
+          type: string
+        id:
+          type: string
+        password:
+          type: string
+      required: [address, token, id, password]
+    MailSender:
+      type: object
+      properties:
+        address:
+          type: string
+        name:
+          type: ["string", "null"]
+      required: [address, name]
+    MailMessageSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          $ref: "#/components/schemas/MailSender"
+        subject:
+          type: string
+        intro:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        seen:
+          type: boolean
+        hasAttachments:
+          type: boolean
+      required: [id, from, subject, intro, createdAt, seen, hasAttachments]
+    MailMessageList:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/MailMessageSummary"
+        totalItems:
+          type: integer
+      required: [messages, totalItems]
+    MailRecipient:
+      type: object
+      properties:
+        address:
+          type: string
+        name:
+          type: ["string", "null"]
+      required: [address, name]
+    MailMessageDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          $ref: "#/components/schemas/MailSender"
+        to:
+          type: array
+          items:
+            $ref: "#/components/schemas/MailRecipient"
+        subject:
+          type: string
+        intro:
+          type: string
+        text:
+          type: ["string", "null"]
+        html:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        seen:
+          type: boolean
+      required: [id, from, to, subject, intro, text, html, createdAt, seen]
 

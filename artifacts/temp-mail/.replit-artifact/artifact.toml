@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Temp Mail"
+description = "A mobile disposable email app for creating temporary inboxes, choosing an address, and reading or deleting messages."
+version = "1.0.0"
+id = "artifacts/temp-mail"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 24178
+
+[services.development]
+run = "pnpm --filter @workspace/temp-mail run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/temp-mail", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/temp-mail", "run", "serve" ]
+
+[services.env]
+PORT = "24178"
+BASE_PATH = "/"
